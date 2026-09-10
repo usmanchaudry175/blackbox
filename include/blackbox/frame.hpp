@@ -2,7 +2,7 @@
 
 #include <cstdint>
 #include <cstddef>
-
+#include "cobs.hpp"  // Include the COBS header for encoding/decoding
 // Wire format v1 — see docs/design.md
 // Big-endian, COBS-framed, CRC-16-CCITT.
 
@@ -21,8 +21,8 @@ inline constexpr size_t kHeaderSize   = kFlagsSize + kSessionSize + kSequenceSiz
 inline constexpr size_t kMinRawFrame  = kHeaderSize + kPayloadSize + kCrcSize;  // header + payload + crc
 inline constexpr size_t kMaxRawFrame  = kMinRawFrame + kTimestampSize;  // header + payload + timestamp + crc
 
-inline constexpr size_t kMinWireFrame = kMinRawFrame + (kMinRawFrame + 253) / 254 + 1;  // 24
-inline constexpr size_t kMaxWireFrame = kMaxRawFrame + (kMaxRawFrame + 253) / 254 + 1;  // 28
+inline constexpr size_t kMinWireFrame = cobs_max_encoded(kMinRawFrame)+1;  // 24
+inline constexpr size_t kMaxWireFrame = cobs_max_encoded(kMaxRawFrame)+1;  // 28
 
 static_assert(kMinRawFrame  == 22);
 static_assert(kMaxRawFrame  == 26);
