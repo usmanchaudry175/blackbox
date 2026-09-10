@@ -21,11 +21,13 @@ inline constexpr size_t kHeaderSize   = kFlagsSize + kSessionSize + kSequenceSiz
 inline constexpr size_t kMinRawFrame  = kHeaderSize + kPayloadSize + kCrcSize;  // header + payload + crc
 inline constexpr size_t kMaxRawFrame  = kMinRawFrame + kTimestampSize;  // header + payload + timestamp + crc
 
-inline constexpr size_t kCobsMax      = kMaxRawFrame + (kMaxRawFrame + 253) / 254;
-inline constexpr size_t kMaxWireFrame = kCobsMax + 1;  // + delimiter
+inline constexpr size_t kMinWireFrame = kMinRawFrame + (kMinRawFrame + 253) / 254 + 1;  // 24
+inline constexpr size_t kMaxWireFrame = kMaxRawFrame + (kMaxRawFrame + 253) / 254 + 1;  // 28
 
-static_assert(kMinRawFrame == 20);
-static_assert(kMaxWireFrame == 26);
+static_assert(kMinRawFrame  == 22);
+static_assert(kMaxRawFrame  == 26);
+static_assert(kMinWireFrame == 24);
+static_assert(kMaxWireFrame == 28);
 
 // ---- Offsets (D12) ----
 inline constexpr size_t kOffFlags     = 0;
