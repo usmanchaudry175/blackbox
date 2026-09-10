@@ -7,7 +7,7 @@ namespace blackbox {
 // Worst-case encoded size for n input bytes: one overhead byte, plus one more
 // per 254 consecutive non-zero bytes. Excludes the trailing delimiter.
 inline constexpr size_t cobs_max_encoded(size_t n) {
-    return n + (n + 253) / 254;
+    return n + (n + 253) / 254 + (n == 0 ? 1 : 0);
 }
 
 // Encodes `in` into `out`. `out` must be at least cobs_max_encoded(in_len).
