@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstddef>
 #include "cobs.hpp"  // Include the COBS header for encoding/decoding
+
 // Wire format v1 — see docs/design.md
 // Big-endian, COBS-framed, CRC-16-CCITT.
 
@@ -12,22 +13,22 @@ namespace blackbox {
 inline constexpr size_t kFlagsSize     = 1;
 inline constexpr size_t kSessionSize   = 1;
 inline constexpr size_t kSequenceSize  = 4;
-inline constexpr size_t kPayloadSize   = 14;
+inline constexpr size_t kPayloadSize   = 12;
 inline constexpr size_t kTimestampSize = 4;
 inline constexpr size_t kCrcSize       = 2;
 
 // ---- Derived sizes — arithmetic, never literals ----
 inline constexpr size_t kHeaderSize   = kFlagsSize + kSessionSize + kSequenceSize;  // flags + session + sequence
-inline constexpr size_t kMinRawFrame  = kHeaderSize + kPayloadSize + kCrcSize;  // header + payload + crc
-inline constexpr size_t kMaxRawFrame  = kMinRawFrame + kTimestampSize;  // header + payload + timestamp + crc
+inline constexpr size_t kMinRawFrame  = kHeaderSize + kPayloadSize + kCrcSize;      // header + payload + crc
+inline constexpr size_t kMaxRawFrame  = kMinRawFrame + kTimestampSize;              // header + payload + timestamp + crc
 
-inline constexpr size_t kMinWireFrame = cobs_max_encoded(kMinRawFrame)+1;  // 24
-inline constexpr size_t kMaxWireFrame = cobs_max_encoded(kMaxRawFrame)+1;  // 28
+inline constexpr size_t kMinWireFrame = cobs_max_encoded(kMinRawFrame) + 1;  // 22
+inline constexpr size_t kMaxWireFrame = cobs_max_encoded(kMaxRawFrame) + 1;  // 26
 
-static_assert(kMinRawFrame  == 22);
-static_assert(kMaxRawFrame  == 26);
-static_assert(kMinWireFrame == 24);
-static_assert(kMaxWireFrame == 28);
+static_assert(kMinRawFrame  == 20);
+static_assert(kMaxRawFrame  == 24);
+static_assert(kMinWireFrame == 22);
+static_assert(kMaxWireFrame == 26);
 
 // ---- Offsets (D12) ----
 inline constexpr size_t kOffFlags     = 0;
@@ -38,19 +39,25 @@ inline constexpr size_t kOffTimestamp = kOffPayload + kPayloadSize;
 // CRC is located from the decoded length, not from here (D14)
 
 // ---- Flags byte (D10) ----
-inline constexpr uint8_t kFlagTimestamp    = 1u << 0;  // bit 0
-inline constexpr uint8_t kFlagFirstOfSession = 1u << 1;  // bit 1
-inline constexpr uint8_t kVersionMask  = 0b111u << kVersionShift;  // bits 5-7
 inline constexpr uint8_t kVersionShift = 5;
+inline constexpr uint8_t kVersionMask  = 0b111u << kVersionShift;  // bits 5-7
+
+inline constexpr uint8_t kFlagTimestamp      = 1u << 0;  // bit 0
+inline constexpr uint8_t kFlagFirstOfSession = 1u << 1;  // bit 1
+inline constexpr uint8_t kReservedMask       = 0b111u << 2;  // bits 2-4
+
+static_assert((kVersionMask & (kFlagTimestamp | kFlagFirstOfSession | kReservedMask)) == 0);
+
 inline constexpr uint8_t kFormatVersion = 1;
+inline constexpr uint8_t kDelimiter     = 0x00;
 
-static_assert((kVersionMask & (kFlagTimestamp | kFlagFirstOfSession)) == 0);
-
-inline constexpr uint8_t kReservedMask = 0b111u << 2;  // bits 2-4
-
-inline constexpr uint8_t kDelimiter = 0x00;
-
-inline constexpr size_t kAxisCount = 6;   // ax ay az gx gy gz
+// ---- Payload field layout ----
+enum Axis : size_t {
+    kAccelX = 0, kAccelY, kAccelZ,
+    kGyroX, kGyroY, kGyroZ,
+    kFieldCount
+};
+static_assert(kPayloadSize == kFieldCount * sizeof(int16_t));
 
 // ---- Decoded representation ----
 // NOT the wire format. Natural types; padding is irrelevant because
@@ -59,7 +66,7 @@ struct Frame {
     uint8_t  version;
     uint8_t  session_id;
     uint32_t sequence;
-    int16_t  samples[kAxisCount];
+    int16_t  samples[kFieldCount];
     uint32_t timestamp_ms;      // valid only if has_timestamp
     bool     has_timestamp;
     bool     first_of_session;
@@ -74,15 +81,6 @@ enum class DecodeError {
     LengthMismatch,
     BadCrc,
 };
-enum Axis : size_t {
-    kAccelX = 0, kAccelY, kAccelZ,
-    kTemp,
-    kGyroX, kGyroY, kGyroZ,
-    kFieldCount
-};
-
-int16_t samples[kFieldCount];
-static_assert(kPayloadSize == kFieldCount * sizeof(int16_t));
 
 // ---- API ----
 
