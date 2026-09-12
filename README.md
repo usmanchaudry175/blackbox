@@ -30,19 +30,13 @@ Every design decision is documented and justified in
 written as decisions were made, not retrofitted afterward.
 
 ## Architecture
-
-```
-generate_frames.py          StreamReader           LogWriter
-(Python, synthetic          (COBS decode, CRC       (segmented,
- device / fault             verify, sequence         disk-full-safe
- injection)         --PTY-->tracking)      -------->  persistence)
-                                                            |
-                                                            v
-                                                       LogReader /
-                                                       replay()
-                                                            |
-                                                            v
-                                                    replay_cli / analysis
+ 
+```mermaid
+flowchart LR
+    A["generate_frames.py<br/>(Python)<br/>synthetic device,<br/>fault injection"] -- PTY --> B["StreamReader<br/>COBS decode, CRC verify,<br/>sequence tracking"]
+    B --> C["LogWriter<br/>segmented,<br/>disk-full-safe<br/>persistence"]
+    C --> D["LogReader / replay()"]
+    D --> E["replay_cli / analysis"]
 ```
 
 - `include/blackbox/`, `src/` — core library (`blackbox_core`): COBS,
