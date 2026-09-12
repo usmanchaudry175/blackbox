@@ -2,3 +2,4 @@ build/
 .cache/
 compile_commands.jsonfuzz/fuzz_frame
 fuzz_frame
+venv/
