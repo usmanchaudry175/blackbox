@@ -30,7 +30,7 @@ Every design decision is documented and justified in
 written as decisions were made, not retrofitted afterward.
 
 ## Architecture
- 
+
 ```mermaid
 flowchart LR
     A["generate_frames.py<br/>(Python)<br/>synthetic device,<br/>fault injection"] -- PTY --> B["StreamReader<br/>COBS decode, CRC verify,<br/>sequence tracking"]
@@ -175,15 +175,37 @@ decision, the alternatives considered, and why. Highlights:
   development (a high-water-mark regression, and a seen-set gap),
   both now covered by regression tests
 
+## Live dashboard and MATLAB export
+
+`tools/dashboard.py` tails an active (or completed) on-disk log
+segment, polling for new complete records and rendering live
+throughput, high-water-mark gap detection, and the most recent
+frames — independent of whether `capture_cli` is the process
+currently writing to it. Confirmed against a live `capture_cli` run:
+6,757 frames tailed with zero gaps and zero decode errors, matching
+the writer's output exactly — itself a useful cross-check that the
+C++ writer and this Python reader agree on every byte of the format.
+
+`tools/export_matlab.py` reads a completed log (all segments, in
+order) and produces a `.mat` file for offline flight analysis:
+per-frame samples, both the raw amortised timestamp (D6) and a
+linearly-interpolated one so every frame has a usable time value, and
+the gap event stream (`gap_start`/`gap_end`) so a MATLAB user can
+mask or flag missing windows rather than plot through them as
+continuous data.
+
+```bash
+pip install numpy scipy --break-system-packages
+python3 tools/export_matlab.py <log_base_path> <output.mat>
+```
+
 ## Status
 
-Phase 7 (benchmarking) in progress — throughput, fidelity, and
-recovery-time numbers above are complete; a live dashboard and a
-MATLAB export path are still pending before Phase 7 is called done.
-Phases 1–6 (framing, reader, storage/replay, fault injection) are
-complete. Phase 8 (real firmware, replacing the Python generator with
-actual hardware emitting the same frame format) begins once Phase 7
-is fully closed out.
+Phase 7 (benchmarking, live dashboard, MATLAB export) complete.
+Phases 1–7 (framing, reader, storage/replay, fault injection,
+benchmarking) are done. Phase 8 (real firmware, replacing the Python
+generator with actual hardware emitting the same frame format) is
+next.
 
 Still open, tracked in `docs/design.md`:
 - `SequenceTracker` extraction (shared logic currently duplicated
