@@ -164,3 +164,70 @@ TEST_CASE("Reader: empty feed is a no-op") {
     REQUIRE(reader.stats().bytes_fed == 0);
     REQUIRE(reader.stats().frames_accepted == 0);
 }
+// Additions to tests/test_reader.cpp — StreamReader out-of-order handling
+
+TEST_CASE("Reader: out-of-order arrival is flagged, not reassembled") {
+    StreamReader reader;
+    auto w0 = make_wire_frame(0);
+    auto w2 = make_wire_frame(2);
+    auto w1 = make_wire_frame(1);  // arrives AFTER seq 2 — out of order
+
+    reader.feed(w0.data(), w0.size());
+    reader.feed(w2.data(), w2.size());
+    reader.feed(w1.data(), w1.size());
+
+    // seq 0, then seq 2 (a gap of exactly seq 1, since it hasn't arrived
+    // yet), then seq 1 arrives late — flagged as out-of-order, not
+    // treated as filling the gap.
+    REQUIRE(reader.stats().frames_accepted == 3);  // all three still delivered
+    REQUIRE(reader.stats().gaps_detected == 1);     // the gap was real at the time seq 2 arrived
+    REQUIRE(reader.stats().out_of_order_detected == 1);
+
+    Frame out{};
+    REQUIRE(reader.pop_frame(out)); REQUIRE(out.sequence == 0);
+    REQUIRE(reader.pop_frame(out)); REQUIRE(out.sequence == 2);
+    REQUIRE(reader.pop_frame(out)); REQUIRE(out.sequence == 1);  // delivered in ARRIVAL order, not re-sorted
+}
+
+TEST_CASE("Reader: out-of-order frame does not corrupt subsequent gap detection") {
+    // This is the exact regression D17 exists to prevent: without the
+    // high-water-mark fix, last_sequence_ would regress to 1 after the
+    // out-of-order frame, making the next real frame (seq 5) look like
+    // it closed a gap starting from 2 instead of from 3 (the true
+    // high-water mark before this frame arrived).
+    StreamReader reader;
+    auto w0 = make_wire_frame(0);
+    auto w3 = make_wire_frame(3);   // gap: 1,2 missing (2 missing)
+    auto w1 = make_wire_frame(1);   // out of order — must NOT reset high-water mark
+    auto w5 = make_wire_frame(5);   // gap: 4 missing (1 missing) — must be measured from 3, not from 1
+
+    reader.feed(w0.data(), w0.size());
+    reader.feed(w3.data(), w3.size());
+    reader.feed(w1.data(), w1.size());
+    reader.feed(w5.data(), w5.size());
+
+    REQUIRE(reader.stats().out_of_order_detected == 1);
+    // Correct total: gap of {1,2} (2 missing) when seq 3 arrived, plus
+    // gap of {4} (1 missing) when seq 5 arrived = 3 total.
+    // A buggy implementation that let last_sequence_ regress to 1 would
+    // instead report a gap of {2,3,4} (3 missing) when seq 5 arrived,
+    // for the WRONG total of 2 + 3 = 5.
+    REQUIRE(reader.stats().gaps_detected == 3);
+}
+
+TEST_CASE("Reader: out-of-order frame with a lower sequence than a duplicate check") {
+    // Confirms the duplicate check still fires correctly and takes
+    // priority — an out-of-order frame whose sequence exactly matches
+    // one already seen is a duplicate, not "out of order".
+    StreamReader reader;
+    auto w0 = make_wire_frame(0);
+    auto w1 = make_wire_frame(1);
+    auto w0_again = make_wire_frame(0);  // exact repeat, not merely "less than high-water"
+
+    reader.feed(w0.data(), w0.size());
+    reader.feed(w1.data(), w1.size());
+    reader.feed(w0_again.data(), w0_again.size());
+
+    REQUIRE(reader.stats().duplicates_detected == 1);
+    REQUIRE(reader.stats().out_of_order_detected == 0);
+}

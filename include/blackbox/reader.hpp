@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <vector>
 #include <deque>
+#include <unordered_set>
 
 namespace blackbox {
 
@@ -20,6 +21,7 @@ public:
         uint64_t oversized_discards = 0;  // D13 — no delimiter within kMaxWireFrame
         uint64_t gaps_detected = 0;       // total missing sequence numbers, summed
         uint64_t duplicates_detected = 0;
+        uint64_t out_of_order_detected = 0;
     };
 
     // Feed newly received bytes (from a socket, PTY, or serial port).
@@ -32,15 +34,18 @@ public:
     const Stats& stats() const { return stats_; }
 
 private:
+    static constexpr uint32_t kSeenWindow = 1024;
     void process_raw_candidate(const uint8_t* wire, size_t wire_len);
     void update_sequence_tracking(const Frame& frame);
 
     std::vector<uint8_t> pending_;  // bytes accumulated since the last delimiter
     std::deque<Frame> ready_;
+    std::unordered_set<uint32_t> seen_sequences_;  // for duplicate detection
     Stats stats_;
 
     bool have_last_sequence_ = false;
     uint32_t last_sequence_ = 0;
+    void prune_seen_sequences_before(uint32_t threshold);
 };
 
 }  // namespace blackbox

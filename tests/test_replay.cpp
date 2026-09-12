@@ -192,3 +192,94 @@ TEST_CASE("Replay: empty log produces no events, doesn't crash") {
     auto events = replay(base);
     REQUIRE(events.empty());
 }
+// Additions to tests/test_replay.cpp — replay() out-of-order handling
+
+TEST_CASE("Replay: out-of-order frame produces an OutOfOrder event, arrival order preserved") {
+    std::string base = "test_replay_ooo";
+    TempLogCleanup cleanup(base);
+
+    {
+        LogWriter writer(base, 1024 * 1024);
+        // LogWriter/LogReader operate on whatever order write_frame() is
+        // called in — writing out of sequence order here simulates a log
+        // that somehow ended up with reordered records (e.g. from a
+        // future multi-source merge), independent of how StreamReader's
+        // own out-of-order detection works upstream.
+        writer.write_frame(make_test_frame(0));
+        writer.write_frame(make_test_frame(2));
+        writer.write_frame(make_test_frame(1));  // out of order
+    }
+
+    auto events = replay(base);
+
+    REQUIRE(events.size() == 4);  // Frame(0), Gap(1..1), Frame(2), OutOfOrder(1)
+    REQUIRE(events[0].kind == ReplayEvent::Kind::Frame);
+    REQUIRE(events[0].frame.frame.sequence == 0);
+    REQUIRE(events[1].kind == ReplayEvent::Kind::Gap);
+    REQUIRE(events[1].gap_start == 1);
+    REQUIRE(events[1].gap_end == 1);
+    REQUIRE(events[2].kind == ReplayEvent::Kind::Frame);
+    REQUIRE(events[2].frame.frame.sequence == 2);
+    REQUIRE(events[3].kind == ReplayEvent::Kind::OutOfOrder);
+    REQUIRE(events[3].frame.frame.sequence == 1);
+}
+
+TEST_CASE("Replay: out-of-order frame does not corrupt a subsequent gap calculation") {
+    std::string base = "test_replay_ooo_gap_regression";
+    TempLogCleanup cleanup(base);
+
+    {
+        LogWriter writer(base, 1024 * 1024);
+        writer.write_frame(make_test_frame(0));
+        writer.write_frame(make_test_frame(3));  // gap 1,2
+        writer.write_frame(make_test_frame(1));  // out of order
+        writer.write_frame(make_test_frame(5));  // gap should be just {4}, not {2,3,4}
+    }
+
+    auto events = replay(base);
+
+    std::vector<std::pair<uint32_t, uint32_t>> gaps;
+    for (const auto& ev : events) {
+        if (ev.kind == ReplayEvent::Kind::Gap) {
+            gaps.push_back({ev.gap_start, ev.gap_end});
+        }
+    }
+
+    REQUIRE(gaps.size() == 2);
+    REQUIRE((gaps[0] == std::make_pair(1u, 2u)));
+    REQUIRE((gaps[1] == std::make_pair(4u, 4u)));  // NOT {2,3,4} — proves no regression
+}
+TEST_CASE("Replay: duplicate frame with a lower sequence than the current high-water mark") {
+    // Confirms the fix in replay()'s seen-set tracking: an exact repeat of
+    // an already-seen sequence must be classified as Duplicate even when
+    // that sequence is BEHIND the current high-water mark, not just equal
+    // to it. The pre-fix implementation only checked seq == last_sequence,
+    // so this exact case (frame(0) repeated after frame(1) had already
+    // advanced last_sequence to 1) would misclassify the repeat as
+    // OutOfOrder instead of Duplicate.
+    std::string base = "test_replay_dup_below_high_water";
+    TempLogCleanup cleanup(base);
+
+    {
+        LogWriter writer(base, 1024 * 1024);
+        writer.write_frame(make_test_frame(0));
+        writer.write_frame(make_test_frame(1));
+        writer.write_frame(make_test_frame(0));  // exact repeat, not merely "less than high-water"
+    }
+
+    auto events = replay(base);
+
+    REQUIRE(events.size() == 3);
+    REQUIRE(events[0].kind == ReplayEvent::Kind::Frame);
+    REQUIRE(events[0].frame.frame.sequence == 0);
+    REQUIRE(events[1].kind == ReplayEvent::Kind::Frame);
+    REQUIRE(events[1].frame.frame.sequence == 1);
+    REQUIRE(events[2].kind == ReplayEvent::Kind::Duplicate);
+    REQUIRE(events[2].frame.frame.sequence == 0);
+
+    // Critically: no OutOfOrder event should appear — this is the
+    // exact misclassification the seen-set fix corrects.
+    for (const auto& ev : events) {
+        REQUIRE(ev.kind != ReplayEvent::Kind::OutOfOrder);
+    }
+}

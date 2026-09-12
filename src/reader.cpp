@@ -58,35 +58,50 @@ void StreamReader::process_raw_candidate(const uint8_t* wire, size_t wire_len) {
     stats_.frames_accepted++;
     ready_.push_back(frame);
 }
+void StreamReader::prune_seen_sequences_before(uint32_t threshold) {
+    // Guard against underflow when last_sequence_ hasn't advanced past
+    // kSeenWindow yet (e.g. early in a session).
+    for (auto it = seen_sequences_.begin(); it != seen_sequences_.end(); ) {
+        if (*it < threshold) {
+            it = seen_sequences_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
 
 void StreamReader::update_sequence_tracking(const Frame& frame) {
-    // Detects immediate duplicates/gaps against the most recently accepted
-    // frame only. Deliberately does NOT handle out-of-order arrival
-    // (Phase 6's reordering fault) — a reordered frame will currently be
-    // misreported (a gap, then a "backwards" sequence that falls through
-    // unclassified) rather than correctly reconciled. That's Phase 6's
-    // job, not Phase 3's — flagging here rather than silently pretending
-    // this handles a case it doesn't.
     if (!have_last_sequence_) {
         have_last_sequence_ = true;
         last_sequence_ = frame.sequence;
+        seen_sequences_.insert(frame.sequence);
         return;
     }
 
-    if (frame.sequence == last_sequence_) {
+    if (seen_sequences_.count(frame.sequence)) {
         stats_.duplicates_detected++;
-        return;  // don't advance last_sequence_ on a duplicate
+        return;
+    }
+
+    if (frame.sequence < last_sequence_) {
+        // Below the high-water mark but never actually seen before —
+        // genuinely late/reordered, not a duplicate (D17).
+        stats_.out_of_order_detected++;
+        seen_sequences_.insert(frame.sequence);
+        return;
     }
 
     if (frame.sequence > last_sequence_ + 1) {
         stats_.gaps_detected += (frame.sequence - last_sequence_ - 1);
     }
-    // frame.sequence < last_sequence_: out-of-order, not yet classified —
-    // see note above.
 
     last_sequence_ = frame.sequence;
-}
+    seen_sequences_.insert(frame.sequence);
 
+    if (last_sequence_ >= kSeenWindow) {
+        prune_seen_sequences_before(last_sequence_ - kSeenWindow);
+    }
+}
 bool StreamReader::pop_frame(Frame& out) {
     if (ready_.empty()) return false;
     out = ready_.front();
