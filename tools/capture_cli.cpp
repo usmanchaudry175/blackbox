@@ -51,10 +51,12 @@ int main(int argc, char** argv) {
         if (n > 0) {
             reader.feed(buf, static_cast<size_t>(n));
 
-            blackbox::Frame frame{};
+           blackbox::Frame frame{};
             while (reader.pop_frame(frame)) {
-                writer.write_frame(frame);
-                frames_written++;
+                if (!writer.write_frame(frame)) {
+                    fprintf(stderr, "write_frame failed (disk full?) at frame seq=%u\n", frame.sequence);
+                }
+            frames_written++;
             }
         } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
             fprintf(stderr, "read() error: %s\n", strerror(errno));
@@ -79,6 +81,6 @@ int main(int argc, char** argv) {
     fprintf(stderr, "duplicates_detected:  %llu\n", static_cast<unsigned long long>(stats.duplicates_detected));
     fprintf(stderr, "bytes_written to log: %llu\n", static_cast<unsigned long long>(writer.bytes_written()));
     fprintf(stderr, "segment_count:        %u\n", writer.segment_count());
-
+    fprintf(stderr, "write_failures:       %llu\n", static_cast<unsigned long long>(writer.write_failures()));
     return 0;
 }

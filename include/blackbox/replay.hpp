@@ -15,7 +15,7 @@ namespace blackbox {
 // it's still reported (with its data), not discarded, matching
 // StreamReader's "flag, don't suppress" philosophy.
 struct ReplayEvent {
-    enum class Kind { Frame, Gap, Duplicate };
+    enum class Kind { Frame, Gap, Duplicate, OutOfOrder };
 
     Kind kind;
     LocatedFrame frame;        // valid for Frame and Duplicate

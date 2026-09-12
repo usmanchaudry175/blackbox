@@ -10,7 +10,7 @@ int main(int argc, char** argv) {
 
     auto events = blackbox::replay(argv[1]);
 
-    uint64_t frame_count = 0, gap_count = 0, dup_count = 0, missing_total = 0;
+    uint64_t frame_count = 0, gap_count = 0, dup_count = 0, missing_total = 0, ooo_count = 0;
 
     for (const auto& ev : events) {
         switch (ev.kind) {
@@ -30,13 +30,18 @@ int main(int argc, char** argv) {
                 gap_count++;
                 missing_total += (ev.gap_end - ev.gap_start + 1);
                 break;
+            case blackbox::ReplayEvent::Kind::OutOfOrder:
+                std::cout << "OUT_OF_ORDER seq=" << ev.frame.frame.sequence << "\n";
+                ooo_count++;
+                break;
         }
     }
 
     std::cout << "\n--- Summary ---\n"
-              << "Frames: " << frame_count << "\n"
-              << "Duplicates: " << dup_count << "\n"
-              << "Gap events: " << gap_count << " (total " << missing_total << " missing sequence numbers)\n";
+          << "Frames: " << frame_count << "\n"
+          << "Duplicates: " << dup_count << "\n"
+          << "Out of order: " << ooo_count << "\n"
+          << "Gap events: " << gap_count << " (total " << missing_total << " missing sequence numbers)\n";
 
     return 0;
 }

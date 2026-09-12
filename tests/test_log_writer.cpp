@@ -87,7 +87,7 @@ TEST_CASE("LogWriter: single frame round-trips exactly") {
 
     {
         LogWriter writer(base, 1024 * 1024);
-        writer.write_frame(make_test_frame(42, false));
+        REQUIRE(writer.write_frame(make_test_frame(42, false)));
     }  // destructor flushes and closes
 
     auto buf = read_whole_file(base + ".0000.log");
