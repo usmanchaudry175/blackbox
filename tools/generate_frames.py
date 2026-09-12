@@ -21,7 +21,9 @@ import struct
 import sys
 import time
 import tty
+import json
 
+manifest = []
 # ---- Must match include/blackbox/frame.hpp exactly ----
 FLAG_TIMESTAMP = 1 << 0
 FLAG_FIRST_OF_SESSION = 1 << 1
@@ -126,6 +128,7 @@ def main():
     parser.add_argument("--corrupt", type=float, default=0.0, help="Probability [0-1] a frame gets one bit flipped")
     parser.add_argument("--seed", type=int, default=None, help="RNG seed, for reproducible fault injection")
     parser.add_argument("--count", type=int, default=0, help="Stop after N frames (0 = run forever)")
+    parser.add_argument("--manifest-out", default="manifest.json", help="Path to write the ground-truth manifest JSON")
     args = parser.parse_args()
 
     if args.seed is not None:
@@ -153,16 +156,27 @@ def main():
             first = sequence == 0
 
             wire = build_wire_frame(args.session_id, sequence, samples, timestamp_ms, first)
+            manifest_entry = {
+                "sequence": sequence,
+                "samples": samples,
+                "timestamp_ms": timestamp_ms,
+                "first_of_session": first,
+                "corrupted": False,
+                "duplicated": False,
+                "dropped": False,
+                }
 
             if random.random() < args.corrupt:
                 wire = corrupt_bit(wire)
                 stats["corrupted"] += 1
-
+                manifest_entry["corrupted"] = True
+                
             to_send = [wire]
 
             if random.random() < args.dup:
                 to_send.append(wire)
                 stats["duplicated"] += 1
+                manifest_entry["duplicated"] = True
 
             if random.random() < args.reorder and held_back is None:
                 held_back = to_send
@@ -172,12 +186,17 @@ def main():
                 to_send = held_back + to_send
                 held_back = None
 
+            frame_actually_sent = False
             for frame_bytes in to_send:
                 if random.random() < args.loss:
                     stats["dropped"] += 1
                     continue
                 os.write(master_fd, frame_bytes)
                 stats["sent"] += 1
+                frame_actually_sent = True
+            
+            manifest_entry["dropped"] = not frame_actually_sent
+            manifest.append(manifest_entry)
 
             sequence += 1
             if sequence % 500 == 0:
@@ -193,6 +212,9 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        with open(args.manifest_out, "w") as f:
+            json.dump(manifest, f)
+        print(f"Manifest written: {len(manifest)} entries", file=sys.stderr)
         print(f"\nFinal stats: {stats}", file=sys.stderr)
         os.close(master_fd)
         os.close(slave_fd)
