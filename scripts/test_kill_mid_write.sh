@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # kill -9 mid-write integration test: starts kill_probe writing frames
-# continuously, SIGKILLs it after a short randomised delay (simulating
-# a real process crash — not disk exhaustion, which is already covered
-# by test_disk_full.sh), then verifies replay_cli recovers at least as
-# many frames as were confirmed durable at the last checkpoint before
-# the kill.
+# continuously, SIGKILLs it after a short randomised delay, then
+# verifies replay_cli recovers at least as many frames as were
+# confirmed durable at the last checkpoint before the kill. Also times
+# recovery (replay_cli wall-clock time, including process startup —
+# not pure in-process replay() time).
 #
 # Not run as part of `ctest` — invoke manually:
 #   ./scripts/test_kill_mid_write.sh [build_dir] [iterations]
@@ -25,6 +25,7 @@ if [[ ! -x "${REPLAY_CLI}" ]]; then
 fi
 
 FAIL_COUNT=0
+TOTAL_REPLAY_MS=0
 
 for i in $(seq 1 "${ITERATIONS}"); do
     WORK_DIR="$(mktemp -d)"
@@ -36,8 +37,6 @@ for i in $(seq 1 "${ITERATIONS}"); do
     "${PROBE}" "${LOG_BASE}" "${PROGRESS_FILE}" &
     PROBE_PID=$!
 
-    # Randomised delay (50-450ms) so the kill lands at a different point
-    # in the write cycle each iteration.
     SLEEP_MS=$(( (RANDOM % 400) + 50 ))
     sleep "0.${SLEEP_MS}"
 
@@ -53,8 +52,14 @@ for i in $(seq 1 "${ITERATIONS}"); do
     LAST_KNOWN_GOOD=$(cat "${PROGRESS_FILE}")
     echo "Last durable checkpoint: seq=${LAST_KNOWN_GOOD}"
 
+    REPLAY_START_NS=$(date +%s%N)
     REPLAY_OUTPUT=$("${REPLAY_CLI}" "${LOG_BASE}")
+    REPLAY_END_NS=$(date +%s%N)
+    REPLAY_MS=$(( (REPLAY_END_NS - REPLAY_START_NS) / 1000000 ))
+    TOTAL_REPLAY_MS=$((TOTAL_REPLAY_MS + REPLAY_MS))
+
     REPLAY_FRAME_COUNT=$(echo "${REPLAY_OUTPUT}" | grep -oP 'Frames:\s*\K[0-9]+')
+    echo "Recovery time: ${REPLAY_MS} ms (${REPLAY_FRAME_COUNT} frames recovered)"
 
     if [[ -z "${REPLAY_FRAME_COUNT}" ]]; then
         echo "FAIL: could not parse frame count from replay_cli output" >&2
@@ -64,8 +69,6 @@ for i in $(seq 1 "${ITERATIONS}"); do
         continue
     fi
 
-    # A checkpoint taken before the kill is a lower bound — actual
-    # durable count can only be >= it.
     if (( REPLAY_FRAME_COUNT >= LAST_KNOWN_GOOD )); then
         echo "PASS: readback (${REPLAY_FRAME_COUNT}) >= last checkpoint (${LAST_KNOWN_GOOD})"
     else
@@ -78,6 +81,9 @@ for i in $(seq 1 "${ITERATIONS}"); do
 done
 
 echo ""
+AVG_REPLAY_MS=$((TOTAL_REPLAY_MS / ITERATIONS))
+echo "Average recovery time across ${ITERATIONS} iterations: ${AVG_REPLAY_MS} ms"
+
 if (( FAIL_COUNT == 0 )); then
     echo "PASS: all ${ITERATIONS} kill -9 iterations recovered cleanly."
     exit 0

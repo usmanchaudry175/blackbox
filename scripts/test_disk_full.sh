@@ -9,7 +9,7 @@
 #
 # Requires sudo (mounting tmpfs). Not run as part of `ctest` — invoke
 # manually: ./scripts/test_disk_full.sh [build_dir]
-set -euo pipefail
+set -uo pipefail
 
 MOUNT_POINT="$(mktemp -d)"
 BUILD_DIR="${1:-build}"
@@ -34,10 +34,8 @@ sudo chown "$(id -u):$(id -g)" "${MOUNT_POINT}"
 
 echo "Running disk_full_probe..."
 PROBE_LOG_BASE="${MOUNT_POINT}/probe_log"
-set +e
 PROBE_OUTPUT=$("${PROBE}" "${PROBE_LOG_BASE}")
 PROBE_STATUS=$?
-set -e
 echo "${PROBE_OUTPUT}"
 
 if [[ ${PROBE_STATUS} -ne 0 ]]; then
@@ -65,7 +63,13 @@ echo "OK: write_failures() == ${REPORTED_FAILURES}, matches observed failures."
 
 echo "Verifying readback via replay_cli (expect ${SUCCESSES}, or $((SUCCESSES - 1)) if the last write was mid-flight)..."
 if [[ -x "${REPLAY_CLI}" ]]; then
+    REPLAY_START_NS=$(date +%s%N)
     REPLAY_OUTPUT=$("${REPLAY_CLI}" "${PROBE_LOG_BASE}")
+    REPLAY_END_NS=$(date +%s%N)
+    REPLAY_MS=$(( (REPLAY_END_NS - REPLAY_START_NS) / 1000000 ))
+
+    echo "Recovery time: ${REPLAY_MS} ms (${SUCCESSES} frames on disk)"
+
     REPLAY_FRAME_COUNT=$(echo "${REPLAY_OUTPUT}" | grep -oP 'Frames:\s*\K[0-9]+')
 
     if [[ -z "${REPLAY_FRAME_COUNT}" ]]; then
