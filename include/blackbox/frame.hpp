@@ -91,4 +91,10 @@ size_t encode(const Frame& frame, uint8_t* out, size_t out_len);
 // Decodes one COBS-decoded frame from `in` into `frame`.
 DecodeError decode(const uint8_t* in, size_t in_len, Frame& frame);
 
+// Serialises `frame` to raw bytes only (no COBS, no delimiter). Used by
+// encode() internally, and directly by log storage (D15) — a file we
+// wrote ourselves doesn't need framing against corruption it never
+// experiences; wire framing exists for the transport, not the disk.
+size_t serialize_raw(const Frame& frame, uint8_t* out, size_t out_len);
+
 }  // namespace blackbox

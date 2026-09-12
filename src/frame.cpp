@@ -4,45 +4,53 @@
 
 namespace blackbox {
 
-size_t encode(const Frame& frame, uint8_t* out, size_t out_len) {
-    uint8_t raw[kMaxRawFrame];
+size_t serialize_raw(const Frame& frame, uint8_t* out, size_t out_len) {
+    if (out_len < kMaxRawFrame) {
+        return 0;
+    }
 
     uint8_t flags = static_cast<uint8_t>((frame.version << kVersionShift) & kVersionMask);
     if (frame.has_timestamp)    flags |= kFlagTimestamp;
     if (frame.first_of_session) flags |= kFlagFirstOfSession;
-    // Reserved bits (2-4) are left at 0 by construction — never set here (D10).
 
-    raw[kOffFlags]   = flags;
-    raw[kOffSession] = frame.session_id;
+    out[kOffFlags]   = flags;
+    out[kOffSession] = frame.session_id;
 
-    raw[kOffSequence + 0] = static_cast<uint8_t>(frame.sequence >> 24);
-    raw[kOffSequence + 1] = static_cast<uint8_t>(frame.sequence >> 16);
-    raw[kOffSequence + 2] = static_cast<uint8_t>(frame.sequence >> 8);
-    raw[kOffSequence + 3] = static_cast<uint8_t>(frame.sequence);
+    out[kOffSequence + 0] = static_cast<uint8_t>(frame.sequence >> 24);
+    out[kOffSequence + 1] = static_cast<uint8_t>(frame.sequence >> 16);
+    out[kOffSequence + 2] = static_cast<uint8_t>(frame.sequence >> 8);
+    out[kOffSequence + 3] = static_cast<uint8_t>(frame.sequence);
 
     for (size_t i = 0; i < kFieldCount; i++) {
         uint16_t v = static_cast<uint16_t>(frame.samples[i]);
-        raw[kOffPayload + i * 2 + 0] = static_cast<uint8_t>(v >> 8);
-        raw[kOffPayload + i * 2 + 1] = static_cast<uint8_t>(v);
+        out[kOffPayload + i * 2 + 0] = static_cast<uint8_t>(v >> 8);
+        out[kOffPayload + i * 2 + 1] = static_cast<uint8_t>(v);
     }
 
-    size_t crc_off = kOffPayload + kPayloadSize;   // == kOffTimestamp
+    size_t crc_off = kOffPayload + kPayloadSize;
     if (frame.has_timestamp) {
         uint32_t ts = frame.timestamp_ms;
-        raw[kOffTimestamp + 0] = static_cast<uint8_t>(ts >> 24);
-        raw[kOffTimestamp + 1] = static_cast<uint8_t>(ts >> 16);
-        raw[kOffTimestamp + 2] = static_cast<uint8_t>(ts >> 8);
-        raw[kOffTimestamp + 3] = static_cast<uint8_t>(ts);
+        out[kOffTimestamp + 0] = static_cast<uint8_t>(ts >> 24);
+        out[kOffTimestamp + 1] = static_cast<uint8_t>(ts >> 16);
+        out[kOffTimestamp + 2] = static_cast<uint8_t>(ts >> 8);
+        out[kOffTimestamp + 3] = static_cast<uint8_t>(ts);
         crc_off = kOffTimestamp + kTimestampSize;
     }
 
-    uint16_t crc = crc16_ccitt_false(raw, crc_off);
-    raw[crc_off + 0] = static_cast<uint8_t>(crc >> 8);
-    raw[crc_off + 1] = static_cast<uint8_t>(crc);
+    uint16_t crc = crc16_ccitt_false(out, crc_off);
+    out[crc_off + 0] = static_cast<uint8_t>(crc >> 8);
+    out[crc_off + 1] = static_cast<uint8_t>(crc);
 
-    size_t raw_len = crc_off + kCrcSize;
+    return crc_off + kCrcSize;
+}
 
-    // Reserve room for the trailing delimiter on top of the COBS bound.
+size_t encode(const Frame& frame, uint8_t* out, size_t out_len) {
+    uint8_t raw[kMaxRawFrame];
+    size_t raw_len = serialize_raw(frame, raw, sizeof(raw));
+    if (raw_len == 0) {
+        return 0;
+    }
+
     if (out_len < cobs_max_encoded(raw_len) + 1) {
         return 0;
     }

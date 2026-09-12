@@ -6,7 +6,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Catch2)
 
-add_executable(tests test_cobs.cpp test_crc16.cpp test_frame.cpp test_reader.cpp)
+add_executable(tests test_cobs.cpp test_crc16.cpp test_frame.cpp test_reader.cpp test_ring_buffer.cpp test_log_writer.cpp)
 target_link_libraries(tests PRIVATE blackbox_core Catch2::Catch2WithMain)
 target_compile_options(tests PRIVATE -Wall -Wextra -Werror)
 
