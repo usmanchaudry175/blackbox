@@ -17,5 +17,9 @@ add_executable(capture_cli tools/capture_cli.cpp)
 target_link_libraries(capture_cli PRIVATE blackbox_core)
 target_compile_options(capture_cli PRIVATE -Wall -Wextra -Werror)
 
+add_executable(disk_full_probe tools/disk_full_probe.cpp)
+target_link_libraries(disk_full_probe PRIVATE blackbox_core)
+
+
 enable_testing()
 add_subdirectory(tests)
