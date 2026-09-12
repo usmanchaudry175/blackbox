@@ -1,6 +1,7 @@
 """
 Python decode-side implementation of the blackbox wire format, for
-cross-language benchmarking against the C++ pipeline (Phase 7).
+cross-language benchmarking against the C++ pipeline (Phase 7), and
+for the live dashboard's on-disk record decoding.
 
 Encode-side logic (cobs_encode, crc16_ccitt_false, build_wire_frame)
 already exists in generate_frames.py and is reused here rather than
@@ -9,7 +10,7 @@ Python implementation — verify_replay.py deliberately avoids
 reimplementing decode by trusting replay_cli's output instead.
 
 Wire format matches include/blackbox/frame.hpp exactly. See
-docs/design.md D1-D14 for rationale.
+docs/design.md for rationale (D1-D19).
 """
 
 import struct
@@ -26,6 +27,12 @@ from generate_frames import (
 
 class DecodeError(Exception):
     pass
+
+
+# Two legal on-disk/raw record lengths (D7): base frame, or base + a
+# 4-byte amortised timestamp. Matches D13's derivation exactly.
+_K_MIN_RAW_FRAME = 1 + 1 + 4 + (2 * FIELD_COUNT) + 2  # flags+session+seq+payload+crc
+_K_MAX_RAW_FRAME = _K_MIN_RAW_FRAME + 4                # + timestamp
 
 
 def cobs_decode(data: bytes) -> bytes:
@@ -49,19 +56,27 @@ def cobs_decode(data: bytes) -> bytes:
     return bytes(out)
 
 
+def expected_record_len(flags: int) -> int:
+    """Matches LogReader::expected_record_len exactly: total on-disk
+    record length is fully determined by the flags byte alone (D10,
+    D12 — self-describing records, no separate length field needed)."""
+    return _K_MAX_RAW_FRAME if (flags & FLAG_TIMESTAMP) else _K_MIN_RAW_FRAME
+
+
+def segment_path(base_path: str, segment_index: int) -> str:
+    """Matches LogReader::segment_path exactly: base_path.NNNN.log"""
+    return f"{base_path}.{segment_index:04d}.log"
+
+
 def decode_raw_frame(raw: bytes) -> dict:
     """Decodes a raw (post-COBS, pre-delimiter-stripped) frame per the
     D12 field ordering, verifying CRC. Raises DecodeError on any
     corruption (bad length, bad CRC, unsupported version) — matching
     decode()'s defensive checks in src/frame.cpp."""
 
-    # Two legal lengths: base frame, or base + 4-byte timestamp (D7).
-    kMinRawFrame = 1 + 1 + 4 + (2 * FIELD_COUNT) + 2   # flags+session+seq+payload+crc
-    kMaxRawFrame = kMinRawFrame + 4                     # + timestamp
-
-    if len(raw) not in (kMinRawFrame, kMaxRawFrame):
+    if len(raw) not in (_K_MIN_RAW_FRAME, _K_MAX_RAW_FRAME):
         raise DecodeError(f"unexpected raw length {len(raw)}, "
-                           f"expected {kMinRawFrame} or {kMaxRawFrame}")
+                           f"expected {_K_MIN_RAW_FRAME} or {_K_MAX_RAW_FRAME}")
 
     body = raw[:-2]
     crc_received = struct.unpack(">H", raw[-2:])[0]
@@ -78,7 +93,7 @@ def decode_raw_frame(raw: bytes) -> dict:
     has_timestamp = bool(flags & FLAG_TIMESTAMP)
     first_of_session = bool(flags & FLAG_FIRST_OF_SESSION)
 
-    expected_len = kMaxRawFrame if has_timestamp else kMinRawFrame
+    expected_len = _K_MAX_RAW_FRAME if has_timestamp else _K_MIN_RAW_FRAME
     if len(raw) != expected_len:
         raise DecodeError(f"flags claim {'timestamp' if has_timestamp else 'no timestamp'} "
                            f"but raw length {len(raw)} doesn't match ({expected_len} expected)")
