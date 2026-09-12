@@ -3,3 +3,5 @@ build/
 compile_commands.jsonfuzz/fuzz_frame
 fuzz_frame
 venv/
+__pycache__/
+*.pyc
