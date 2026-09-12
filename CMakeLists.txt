@@ -23,5 +23,14 @@ target_link_libraries(disk_full_probe PRIVATE blackbox_core)
 add_executable(kill_probe tools/kill_probe.cpp)
 target_link_libraries(kill_probe PRIVATE blackbox_core)
 
+add_executable(bench_throughput tools/bench_throughput.cpp)
+target_link_libraries(bench_throughput PRIVATE blackbox_core)
+
+add_executable(bench_fsync tools/bench_fsync.cpp)
+target_link_libraries(bench_fsync PRIVATE blackbox_core)
+
+add_executable(bench_loss_fidelity tools/bench_loss_fidelity.cpp)
+target_link_libraries(bench_loss_fidelity PRIVATE blackbox_core)
+
 enable_testing()
 add_subdirectory(tests)
