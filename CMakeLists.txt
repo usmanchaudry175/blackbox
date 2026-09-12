@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-add_library(blackbox_core src/frame.cpp src/cobs.cpp src/crc16.cpp src/reader.cpp src/log_writer.cpp src/log_reader.cpp)
+add_library(blackbox_core src/frame.cpp src/cobs.cpp src/crc16.cpp src/reader.cpp src/log_writer.cpp src/log_reader.cpp src/log_index.cpp)
 target_include_directories(blackbox_core PUBLIC include)
 target_compile_options(blackbox_core PRIVATE -Wall -Wextra -Werror)
 
