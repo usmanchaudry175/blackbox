@@ -5,3 +5,9 @@ fuzz_frame
 venv/
 __pycache__/
 *.pyc
+manifest.json
+test_e2e_*.log
+test_reader_*.log
+test_index_*.log
+test_replay_*.log
+*.idx
